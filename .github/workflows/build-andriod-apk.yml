@@ -7,8 +7,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: ubuntu:22.04  # Start with clean Ubuntu
     permissions:
       contents: write
 
@@ -16,40 +14,102 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'zulu'
+
+      # MANUAL FLUTTER INSTALLATION (Most Reliable)
+      - name: Install Flutter Manually
         run: |
-          apt-get update
-          apt-get install -y curl git unzip xz-utils zip libglu1-mesa openjdk-11-jdk wget
+          # Remove any existing Flutter
+          sudo rm -rf /opt/hostedtoolcache/flutter
+          rm -rf ~/.flutter
           
-      - name: Install Flutter
-        run: |
-          # Download Flutter 3.22.0 (includes Dart 3.4+)
-          wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.22.0-stable.tar.xz
+          # Download and extract Flutter 3.22.0 (includes Dart 3.4+)
+          wget -q https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.22.0-stable.tar.xz
           tar xf flutter_linux_3.22.0-stable.tar.xz
           echo "$(pwd)/flutter/bin" >> $GITHUB_PATH
           echo "$(pwd)/flutter/bin" >> ~/.bashrc
           
-      - name: Verify Flutter Version
-        run: |
+          # Verify installation
           export PATH="$PATH:$(pwd)/flutter/bin"
           flutter --version
           dart --version
-          
+
       - name: Accept Android Licenses
         run: |
           export PATH="$PATH:$(pwd)/flutter/bin"
           yes | flutter doctor --android-licenses
+
+      - name: Update Gradle files
+        run: |
+          # Update build.gradle
+          cat > android/build.gradle << 'EOF'
+          buildscript {
+              ext.kotlin_version = '1.9.0'
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:7.3.0'
+                  classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.buildDir = '../build'
+          subprojects {
+              project.buildDir = "\${rootProject.buildDir}/\${project.name}"
+          }
+          subprojects {
+              project.evaluationDependsOn(':app')
+          }
+          tasks.register("clean", Delete) {
+              delete rootProject.buildDir
+          }
+          EOF
           
-      - name: Build APK
+          # Update gradle wrapper
+          cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-7.5-all.zip
+          EOF
+
+      - name: Clean and Prepare
         run: |
           export PATH="$PATH:$(pwd)/flutter/bin"
-          flutter clean
           rm -f pubspec.lock
+          flutter clean
+          cd android
+          if [ ! -f "./gradlew" ]; then
+            flutter build apk --release  # Generate gradlew if missing
+          fi
+          chmod +x ./gradlew
+          ./gradlew clean
+          cd ..
+
+      - name: Get Dependencies
+        run: |
+          export PATH="$PATH:$(pwd)/flutter/bin"
           flutter pub get
+
+      - name: Build APK Release
+        run: |
+          export PATH="$PATH:$(pwd)/flutter/bin"
           flutter build apk --release
-          
+
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4  # <-- CRITICAL: Use v4
         with:
           name: release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
