@@ -12,25 +12,27 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # Updated to v4
 
       - name: Set up JDK
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4  # Updated to v4
         with:
           java-version: '11'
-          distribution: 'zulu'  # Better compatibility than 'microsoft'
+          distribution: 'zulu'
 
-      - name: Install Flutter (Forced Specific Version)
+      - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'  # <- CRITICAL: Pin this exact version
+          flutter-version: '3.19.6'  # Latest stable in 3.19.x series
           channel: 'stable'
-          cache: false  # <- IMPORTANT: Disable cache to avoid the cached 'main' version
+          cache: true  # Enable cache for faster builds
 
       - name: Verify Flutter Version
-        run: flutter --version  # This will confirm the correct version is used
+        run: |
+          flutter --version
+          dart --version  # This will confirm Dart version
 
-      - name: Update Gradle files for compatibility
+      - name: Update Gradle files
         run: |
           # Update build.gradle
           cat > android/build.gradle << 'EOF'
@@ -72,22 +74,31 @@ jobs:
           distributionUrl=https\://services.gradle.org/distributions/gradle-7.5-all.zip
           EOF
 
-      - name: Clean and get dependencies
+      - name: Clean and Prepare
         run: |
+          # Remove any existing lock file to force fresh resolution
+          rm -f pubspec.lock
+          
+          # Clean Flutter
           flutter clean
-          rm -rf ~/.gradle/caches/  # Clear global Gradle cache
-          cd android && ./gradlew clean && rm -rf .gradle && cd ..
-          flutter pub get
-
-      - name: Deep Clean
-        run: |
-          cd android && ./gradlew clean && rm -rf .gradle
+          
+          # Clean Android with proper path handling
+          cd android
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew clean
+            rm -rf .gradle
+          else
+            echo "gradlew not found, creating it..."
+            flutter build apk --release  # This will generate gradlew
+          fi
           cd ..
-          flutter clean
-          rm -rf build
+
+      - name: Get Dependencies
+        run: flutter pub get
 
       - name: Build APK Release
-        run: flutter build apk --release
+        run: flutter build apk --release --verbose  # Verbose for debugging
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
