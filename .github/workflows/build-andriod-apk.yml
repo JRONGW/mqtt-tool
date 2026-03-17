@@ -8,13 +8,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/cirruslabs/flutter:3.19.6  # Official Flutter Docker image with Dart 3.4+
+      image: us-docker.pkg.dev/flutter-docker-images/engine/flutter:3.22.0-stable  # Google's official image
     permissions:
       contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install sudo (required for some operations)
+        run: |
+          apt-get update
+          apt-get install -y sudo
 
       - name: Verify Flutter Version
         run: |
@@ -23,7 +28,12 @@ jobs:
           echo "Flutter path: $(which flutter)"
           echo "Dart path: $(which dart)"
 
-      - name: Update Gradle files for compatibility
+      - name: Set up Android SDK
+        run: |
+          # Accept Android licenses
+          yes | flutter doctor --android-licenses
+          
+      - name: Update Gradle files
         run: |
           # Update build.gradle
           cat > android/build.gradle << 'EOF'
