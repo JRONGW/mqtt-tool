@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/cirruslabs/flutter:3.19.6  # Official Flutter Docker image with Dart 3.4+
     permissions:
       contents: write
 
@@ -14,35 +16,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          java-version: '11'
-          distribution: 'zulu'
-
-      # COMPLETELY NUKE ANY EXISTING FLUTTER INSTALLATION
-      - name: Remove existing Flutter
-        run: |
-          sudo rm -rf /opt/hostedtoolcache/flutter
-          rm -rf ~/.flutter
-          rm -rf ~/.pub-cache
-
-      # INSTALL FLUTTER MANUALLY (MOST RELIABLE METHOD)
-      - name: Install Flutter Manually
-        run: |
-          # Download and extract specific Flutter version
-          wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.19.6-stable.tar.xz
-          tar xf flutter_linux_3.19.6-stable.tar.xz
-          echo "$(pwd)/flutter/bin" >> $GITHUB_PATH
-          
       - name: Verify Flutter Version
         run: |
           flutter --version
           dart --version
-          which flutter
-          which dart
+          echo "Flutter path: $(which flutter)"
+          echo "Dart path: $(which dart)"
 
-      - name: Update Gradle files
+      - name: Update Gradle files for compatibility
         run: |
           # Update build.gradle
           cat > android/build.gradle << 'EOF'
@@ -86,15 +67,12 @@ jobs:
 
       - name: Clean and Prepare
         run: |
-          # Remove lock file
           rm -f pubspec.lock
-          
-          # Clean everything
           flutter clean
-          
-          # Setup Android
           cd android
-          flutter build apk --release  # This generates gradlew
+          if [ ! -f "./gradlew" ]; then
+            flutter build apk --release  # Generate gradlew if missing
+          fi
           chmod +x ./gradlew
           ./gradlew clean
           cd ..
