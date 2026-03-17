@@ -12,25 +12,35 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4  # Updated to v4
+        uses: actions/checkout@v4
 
       - name: Set up JDK
-        uses: actions/setup-java@v4  # Updated to v4
+        uses: actions/setup-java@v4
         with:
           java-version: '11'
           distribution: 'zulu'
 
-      - name: Install Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.19.6'  # Latest stable in 3.19.x series
-          channel: 'stable'
-          cache: true  # Enable cache for faster builds
+      # COMPLETELY NUKE ANY EXISTING FLUTTER INSTALLATION
+      - name: Remove existing Flutter
+        run: |
+          sudo rm -rf /opt/hostedtoolcache/flutter
+          rm -rf ~/.flutter
+          rm -rf ~/.pub-cache
 
+      # INSTALL FLUTTER MANUALLY (MOST RELIABLE METHOD)
+      - name: Install Flutter Manually
+        run: |
+          # Download and extract specific Flutter version
+          wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.19.6-stable.tar.xz
+          tar xf flutter_linux_3.19.6-stable.tar.xz
+          echo "$(pwd)/flutter/bin" >> $GITHUB_PATH
+          
       - name: Verify Flutter Version
         run: |
           flutter --version
-          dart --version  # This will confirm Dart version
+          dart --version
+          which flutter
+          which dart
 
       - name: Update Gradle files
         run: |
@@ -76,29 +86,24 @@ jobs:
 
       - name: Clean and Prepare
         run: |
-          # Remove any existing lock file to force fresh resolution
+          # Remove lock file
           rm -f pubspec.lock
           
-          # Clean Flutter
+          # Clean everything
           flutter clean
           
-          # Clean Android with proper path handling
+          # Setup Android
           cd android
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew clean
-            rm -rf .gradle
-          else
-            echo "gradlew not found, creating it..."
-            flutter build apk --release  # This will generate gradlew
-          fi
+          flutter build apk --release  # This generates gradlew
+          chmod +x ./gradlew
+          ./gradlew clean
           cd ..
 
       - name: Get Dependencies
         run: flutter pub get
 
       - name: Build APK Release
-        run: flutter build apk --release --verbose  # Verbose for debugging
+        run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
