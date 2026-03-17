@@ -53,7 +53,7 @@ jobs:
         run: flutter pub get
 
       - name: Build APK Release             # Build a release
-        run: flutter build apk --release -- --stacktrace
+        run: flutter build apk --release  -v 2>&1
 
       - name: Build an AppBundle            # App Bundles are useful for Google Play Store
         run: flutter build appbundle --release
