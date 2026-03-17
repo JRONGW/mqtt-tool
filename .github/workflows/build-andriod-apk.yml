@@ -1,115 +1,106 @@
-name: Flutter Build Android APK
+name: Flutter Build and Upload Android APK
 
 on:
-  push:
-    branches: [ main ]
+  push:                 # This is the condition that the action will run on
+    branches: [ main ]  # In this case when you push your code into GitHub
+    # tags:
+    # - "v*.*.*"          # In this case when you tag your commit with v1.0.0 for example
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # This is the type of machine we want to run the action on
     permissions:
       contents: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3     # Checkout the Repository on the Virtual Machine
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4
+      - name: Set up JDK              # Setup JAVA to build the Android APK for us
+        uses: actions/setup-java@v3
         with:
           java-version: '11'
-          distribution: 'zulu'
+          distribution: microsoft
 
-      # MANUAL FLUTTER INSTALLATION (Most Reliable)
-      - name: Install Flutter Manually
+      #  Decode keystore File from repository secrets
+      #  Keep the keystore file private; don’t check it into public source control!
+      
+      #- name: Decode KeyStore File (.jks)            
+      #  run: echo "${{ secrets.KEYSTORE_JKS_PROD }}" | base64 --decode > android/keystore.jks
+
+      #- name: Decode android/key.properties
+      #  run: echo "${{ secrets.KEY_PROPERTIES_PROD }}" | base64 --decode > android/key.properties
+
+      - name: Install yq
+        uses: mikefarah/yq@v4.42.1
+
+      - name: Get pubspec version
+        id: get_flutter_app_version
         run: |
-          # Remove any existing Flutter
-          sudo rm -rf /opt/hostedtoolcache/flutter
-          rm -rf ~/.flutter
-          
-          # Download and extract Flutter 3.22.0 (includes Dart 3.4+)
-          wget -q https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.22.0-stable.tar.xz
-          tar xf flutter_linux_3.22.0-stable.tar.xz
-          echo "$(pwd)/flutter/bin" >> $GITHUB_PATH
-          echo "$(pwd)/flutter/bin" >> ~/.bashrc
-          
-          # Verify installation
-          export PATH="$PATH:$(pwd)/flutter/bin"
-          flutter --version
-          dart --version
-
-      - name: Accept Android Licenses
+          VERSION=$(yq .version | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' pubspec.yaml | head -n 1)
+          echo "TAG_VERSION=$VERSION" >> $GITHUB_OUTPUT
+  
+      - name: Create git tag
         run: |
-          export PATH="$PATH:$(pwd)/flutter/bin"
-          yes | flutter doctor --android-licenses
+          git tag "v${{ steps.get_flutter_app_version.outputs.TAG_VERSION }}"
 
-      - name: Update Gradle files
-        run: |
-          # Update build.gradle
-          cat > android/build.gradle << 'EOF'
-          buildscript {
-              ext.kotlin_version = '1.9.0'
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-              dependencies {
-                  classpath 'com.android.tools.build:gradle:7.3.0'
-                  classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-              }
-          }
-          allprojects {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          rootProject.buildDir = '../build'
-          subprojects {
-              project.buildDir = "\${rootProject.buildDir}/\${project.name}"
-          }
-          subprojects {
-              project.evaluationDependsOn(':app')
-          }
-          tasks.register("clean", Delete) {
-              delete rootProject.buildDir
-          }
-          EOF
-          
-          # Update gradle wrapper
-          cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-7.5-all.zip
-          EOF
-
-      - name: Clean and Prepare
-        run: |
-          export PATH="$PATH:$(pwd)/flutter/bin"
-          rm -f pubspec.lock
-          flutter clean
-          cd android
-          if [ ! -f "./gradlew" ]; then
-            flutter build apk --release  # Generate gradlew if missing
-          fi
-          chmod +x ./gradlew
-          ./gradlew clean
-          cd ..
-
-      - name: Get Dependencies
-        run: |
-          export PATH="$PATH:$(pwd)/flutter/bin"
-          flutter pub get
-
-      - name: Build APK Release
-        run: |
-          export PATH="$PATH:$(pwd)/flutter/bin"
-          flutter build apk --release
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4  # <-- CRITICAL: Use v4
+      - name: Install Flutter               # Install Flutter
+        uses: subosito/flutter-action@v2
         with:
-          name: release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          channel: 'main'
+
+      - name: Get Flutter dependencies      # Get the Libraries and Dependencies
+        run: flutter pub get
+
+      - name: Build APK Release             # Build a release
+        run: flutter build apk --release
+
+      - name: Build an AppBundle            # App Bundles are useful for Google Play Store
+        run: flutter build appbundle --release
+
+      - name: Save APK to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-apk
+          path: build/app/outputs/flutter-apk/*.apk
+
+      - name: Save APPBUNDLE to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-appbundle
+          path: build/app/outputs/bundle/release/*.aab
+
+      - name: Create Github Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "build/app/outputs/bundle/release/*.aab,build/app/outputs/flutter-apk/*.apk"
+          tag: "v${{ steps.get_flutter_app_version.outputs.TAG_VERSION }}"
+          # token: ${{ secrets.PERSONAL_RELEASE_TOKEN }}
+
+  # TODO:  Upload to Firebase - for App Distribution
+  # Release job, upload the apk or aab to Firebase App Distribution
+  # release:
+  #   name: Sends Release APK to Firebase
+  #   needs: [ build ]
+  #   runs-on: ubuntu-latest
+  #   steps:
+    
+  #   # Retrieve apk file from GitHub artifacts
+  #   - uses: actions/checkout@v3
+  #   - name: Get flutter-apk from artifacts
+  #     uses: actions/download-artifact@v3
+  #     with:
+  #       name: flutter-apk
+  #  OR
+  #       name: flutter-appbundle
+
+  #   # Upload apk file to Firebase
+  #   - name: Upload artifact to Firebase App Distribution
+  #     uses: wzieba/Firebase-Distribution-Github-Action@v1
+  #     with:
+  #       appId: ${{secrets.FIREBASE_IOS_APP_ID}}
+  #       serviceCredentialsFileContent: ${{ secrets.CREDENTIAL_FILE_CONTENT }}
+  #       groups: android-developers
+  #       file: ${{secrets.APP_NAME}}.apk
+  #  OR
+  #       file: ${{secrets.APP_NAME}}.aab
