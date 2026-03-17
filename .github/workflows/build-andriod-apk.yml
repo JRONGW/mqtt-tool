@@ -23,7 +23,7 @@ jobs:
       - name: Install Flutter (Forced Specific Version)
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.13.9'  # <- CRITICAL: Pin this exact version
+          flutter-version: '3.19.0'  # <- CRITICAL: Pin this exact version
           channel: 'stable'
           cache: false  # <- IMPORTANT: Disable cache to avoid the cached 'main' version
 
@@ -78,6 +78,13 @@ jobs:
           rm -rf ~/.gradle/caches/  # Clear global Gradle cache
           cd android && ./gradlew clean && rm -rf .gradle && cd ..
           flutter pub get
+
+      - name: Deep Clean
+        run: |
+          cd android && ./gradlew clean && rm -rf .gradle
+          cd ..
+          flutter clean
+          rm -rf build
 
       - name: Build APK Release
         run: flutter build apk --release
